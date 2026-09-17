@@ -166,6 +166,8 @@ jobs:
           MINIO_BUCKET=mysql-backups
           MINIO_ACCESS_KEY=minioadmin
           MINIO_SECRET_KEY=minioadmin123
+          CONTROLLER_NAME=$(juju controllers --format=json | python3 -c \
+            'import json, sys; print(json.load(sys.stdin)["current-controller"])')
 
           juju add-model "$K8S_HOST_MODEL" localhost
           juju deploy k8s -m "$K8S_HOST_MODEL" \
@@ -176,7 +178,7 @@ jobs:
             --query='name=="k8s" && (status=="active" || status=="idle")' --timeout=40m
 
           juju ssh -m "$K8S_HOST_MODEL" k8s/0 -- sudo k8s config \
-            | juju add-k8s "$K8S_CLOUD"
+            | juju add-k8s "$K8S_CLOUD" --controller "$CONTROLLER_NAME"
           juju add-model "$MINIO_MODEL" "$K8S_CLOUD"
           juju deploy minio -m "$MINIO_MODEL" \
             --channel=ckf-1.10/stable \
