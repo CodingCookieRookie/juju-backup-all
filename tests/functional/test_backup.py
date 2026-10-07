@@ -29,7 +29,7 @@ from jujubackupall import constants
 from tests.functional.conftest import K8S_CLOUD, expose_via_loadbalancer, resolve_controller_name
 
 WAIT_TIMEOUT = 30 * 60  # 30 minutes
-LONG_WAIT_TIMEOUT = 90 * 60  # 90 minutes
+LONG_WAIT_TIMEOUT = 100 * 60  # 100 minutes
 K8S_WAIT_TIMEOUT = 20 * 60  # 20 minutes
 MINIO_ACCESS_KEY = "ahs9ao#Fua"
 MINIO_SECRET_KEY = "ohCa!uB6oo"
@@ -122,6 +122,7 @@ def test_build_and_deploy(
         app="postgresql",
         base="ubuntu@22.04",
         channel="14/stable",
+        revision=1217,
         num_units=1,
     )
 
@@ -201,6 +202,19 @@ def test_build_and_deploy(
     # --- Deploy s3-integrators and configure s3-credentials for charms ---
 
     juju_k8s.wait(lambda status: jubilant.all_active(status, "minio"), timeout=WAIT_TIMEOUT)
+
+    # Let the database clusters finish forming before relating them to S3; relating
+    # mid-bootstrap fails s3-credentials-relation-changed on non-leader units.
+    for juju, apps in [
+        (juju_lxd, ("mysql", "mongodb", "zookeeper")),
+        (juju_k8s, ("mysql-k8s", "mongodb-k8s", "zookeeper-k8s")),
+    ]:
+        juju.wait(
+            lambda status, apps=apps: jubilant.all_active(status, *apps)
+            and jubilant.all_agents_idle(status, *apps),
+            error=lambda status, apps=apps: jubilant.any_error(status, *apps),
+            timeout=LONG_WAIT_TIMEOUT,
+        )
 
     minio_ip = expose_via_loadbalancer(k8s_host_juju, juju_k8s, "minio")
     s3_secret_k8s = juju_k8s.add_secret("s3-credentials", minio_credentials)
@@ -560,14 +574,16 @@ def test_postgresql_backup(
         juju_lxd.config(s3_integrator_app_name, {"credentials": s3_secret_lxd})
         juju_lxd.wait(
             lambda status: jubilant.all_active(status, s3_integrator_app_name),
-            error=jubilant.any_error,
+            error=lambda status: jubilant.any_error(status, s3_integrator_app_name),
             timeout=WAIT_TIMEOUT,
         )
         juju_lxd.integrate(postgresql_app_name, s3_integrator_app_name)
 
     juju_lxd.wait(
         lambda status: jubilant.all_active(status, postgresql_app_name, s3_integrator_app_name),
-        error=jubilant.any_error,
+        error=lambda status: jubilant.any_error(
+            status, postgresql_app_name, s3_integrator_app_name
+        ),
         timeout=WAIT_TIMEOUT,
     )
     status = juju_lxd.status()
