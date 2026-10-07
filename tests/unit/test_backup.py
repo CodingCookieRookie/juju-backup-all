@@ -30,6 +30,7 @@ from jujubackupall.constants import (
     DEFAULT_BACKUP_LOCATION_ON_POSTGRESQL_UNIT,
     DEFAULT_TASK_TIMEOUT,
     MAX_CONTROLLER_BACKUP_RETRIES,
+    POSTGRESQL_OPERATOR_MIN_REVISION,
 )
 from jujubackupall.errors import BackupMetadataError, JujuControllerBackupError
 
@@ -51,18 +52,49 @@ class TestGetCharmBackupInstance(unittest.TestCase):
         mock_get_mongodb_primary.return_value = mock_unit
         mock_get_non_primary.return_value = mock_unit
         mock_get_postgresql_primary.return_value = mock_unit
+        primary_action = {"get-primary": "Get the primary unit."}
+        create_backup_action = {"create-backup": "Create a backup."}
         test_cases = [
-            ("mysql-innodb-cluster", MysqlInnodbBackup, None),
-            ("mysql", MysqlOperatorBackup, None),
-            ("mysql-k8s", MysqlK8sOperatorBackup, None),
-            ("mongodb", MongodbOperatorBackup, None),
-            ("mongodb-k8s", MongodbK8sOperatorBackup, None),
-            ("etcd", EtcdBackup, None),
-            ("postgresql", ReactivePostgresqlBackup, 519),
-            ("postgresql", PostgresqlOperatorBackup, 1217),
-            ("swift-proxy", SwiftBackup, None),
+            ("mysql-innodb-cluster", MysqlInnodbBackup, None, {}),
+            ("mysql", MysqlOperatorBackup, None, {}),
+            ("mysql-k8s", MysqlK8sOperatorBackup, None, {}),
+            (
+                "mongodb",
+                MongodbOperatorBackup,
+                None,
+                primary_action,
+            ),
+            (
+                "mongodb-k8s",
+                MongodbK8sOperatorBackup,
+                None,
+                primary_action,
+            ),
+            ("mongodb", MongodbOperatorBackup, None, create_backup_action),
+            ("etcd", EtcdBackup, None, {}),
+            ("postgresql", ReactivePostgresqlBackup, 519, primary_action),
+            (
+                "postgresql",
+                PostgresqlOperatorBackup,
+                POSTGRESQL_OPERATOR_MIN_REVISION,
+                {**primary_action, **create_backup_action},
+            ),
+            (
+                "postgresql",
+                ReactivePostgresqlBackup,
+                POSTGRESQL_OPERATOR_MIN_REVISION,
+                primary_action,
+            ),
+            (
+                "postgresql",
+                ReactivePostgresqlBackup,
+                POSTGRESQL_OPERATOR_MIN_REVISION - 1,
+                {**primary_action, **create_backup_action},
+            ),
+            ("postgresql", ReactivePostgresqlBackup, 519, create_backup_action),
+            ("swift-proxy", SwiftBackup, None, {}),
         ]
-        for charm_name, expected_backup_class, charm_revision in test_cases:
+        for charm_name, expected_backup_class, charm_revision, charm_actions in test_cases:
             with self.subTest(charm_name=charm_name, expected_backup_class=expected_backup_class):
                 mock_get_non_primary.reset_mock()
                 mock_get_mongodb_primary.reset_mock()
@@ -76,17 +108,26 @@ class TestGetCharmBackupInstance(unittest.TestCase):
                     Path(DEFAULT_BACKUP_LOCATION_ON_ETCD_UNIT),
                     ANY,
                     charm_revision=charm_revision,
+                    charm_actions=charm_actions,
                 )
                 self.assertIsInstance(backup_instance, expected_backup_class)
                 if charm_name in ("mysql", "mysql-k8s"):
                     mock_get_non_primary.assert_called_once()
                     mock_get_leader.assert_not_called()
                 elif charm_name in ("mongodb", "mongodb-k8s"):
-                    mock_get_mongodb_primary.assert_called_once_with([ANY], ANY)
-                    mock_get_leader.assert_not_called()
+                    if "get-primary" in charm_actions:
+                        mock_get_mongodb_primary.assert_called_once_with([ANY], ANY)
+                        mock_get_leader.assert_not_called()
+                    else:
+                        mock_get_mongodb_primary.assert_not_called()
+                        mock_get_leader.assert_called_once_with([ANY])
                 elif charm_name == "postgresql":
-                    mock_get_postgresql_primary.assert_called_once_with([ANY], ANY)
-                    mock_get_leader.assert_not_called()
+                    if "get-primary" in charm_actions:
+                        mock_get_postgresql_primary.assert_called_once_with([ANY], ANY)
+                        mock_get_leader.assert_not_called()
+                    else:
+                        mock_get_postgresql_primary.assert_not_called()
+                        mock_get_leader.assert_called_once_with([ANY])
                 else:
                     mock_get_postgresql_primary.assert_not_called()
                     mock_get_non_primary.assert_not_called()

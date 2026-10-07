@@ -499,15 +499,25 @@ def get_charm_backup_instance(
     backup_location_on_etcd: Path,
     timeout: int,
     charm_revision: Optional[int] = None,
+    charm_actions: Optional[Dict] = None,
 ) -> CharmBackupType:
+    charm_actions = charm_actions or {}
     if charm_name in (MysqlOperatorBackup.charm_name, MysqlK8sOperatorBackup.charm_name):
         # The charm refuses to back up using the cluster primary.
         # Note that the primary is not necessarily the leader.
         unit = get_non_primary(units, timeout)
     elif charm_name in (MongodbOperatorBackup.charm_name, MongodbK8sOperatorBackup.charm_name):
-        unit = get_mongodb_primary(units, timeout)
+        unit = (
+            get_mongodb_primary(units, timeout)
+            if "get-primary" in charm_actions
+            else get_leader(units)
+        )
     elif charm_name == PostgresqlOperatorBackup.charm_name:
-        unit = get_postgresql_primary(units, timeout)
+        unit = (
+            get_postgresql_primary(units, timeout)
+            if "get-primary" in charm_actions
+            else get_leader(units)
+        )
     else:
         unit = get_leader(units)
     if charm_name == MysqlInnodbBackup.charm_name:
@@ -531,7 +541,11 @@ def get_charm_backup_instance(
     if charm_name == PostgresqlOperatorBackup.charm_name:
         backup_class = (
             PostgresqlOperatorBackup
-            if charm_revision is not None and charm_revision >= POSTGRESQL_OPERATOR_MIN_REVISION
+            if (
+                charm_revision is not None
+                and charm_revision >= POSTGRESQL_OPERATOR_MIN_REVISION
+                and "create-backup" in charm_actions
+            )
             else ReactivePostgresqlBackup
         )
         return backup_class(

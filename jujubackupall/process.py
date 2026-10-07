@@ -196,6 +196,11 @@ class ControllerProcessor:
         charm_revision: Optional[int] = None,
     ):
         try:
+            charm_actions = (
+                run_async(app.get_actions())
+                if charm_name in ("postgresql", "mongodb", "mongodb-k8s")
+                else None
+            )
             charm_backup_instance = get_charm_backup_instance(
                 charm_name=charm_name,
                 units=app.units,
@@ -204,6 +209,7 @@ class ControllerProcessor:
                 backup_location_on_etcd=self.backup_location_on_etcd,
                 timeout=self.timeout,
                 charm_revision=charm_revision,
+                charm_actions=charm_actions,
             )
             self._log("Backing up app.", app_name=app_name, model_name=model_name)
             charm_backup_instance.backup()
