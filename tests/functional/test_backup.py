@@ -571,6 +571,7 @@ def test_postgresql_backup(
             lambda status: jubilant.all_active(
                 status, postgresql_app_name, s3_integrator_app_name
             ),
+            error=jubilant.any_error,
             timeout=WAIT_TIMEOUT,
         )
 
