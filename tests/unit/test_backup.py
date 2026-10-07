@@ -12,12 +12,12 @@ from jujubackupall.backup import (
     EtcdBackup,
     JujuClientConfigBackup,
     JujuControllerBackup,
+    LegacyPostgresqlOperatorBackup,
     MongodbK8sOperatorBackup,
     MongodbOperatorBackup,
     MysqlInnodbBackup,
     MysqlK8sOperatorBackup,
     MysqlOperatorBackup,
-    OldPostgresqlBackup,
     PostgresqlOperatorBackup,
     SwiftBackup,
     ZookeeperK8sOperatorBackup,
@@ -72,7 +72,12 @@ class TestGetCharmBackupInstance(unittest.TestCase):
             ),
             ("mongodb", MongodbOperatorBackup, None, create_backup_action),
             ("etcd", EtcdBackup, None, {}),
-            ("postgresql", OldPostgresqlBackup, 519, primary_action),
+            (
+                "postgresql",
+                LegacyPostgresqlOperatorBackup,
+                POSTGRESQL_OPERATOR_MIN_REVISION - 1,
+                primary_action,
+            ),
             (
                 "postgresql",
                 PostgresqlOperatorBackup,
@@ -81,17 +86,22 @@ class TestGetCharmBackupInstance(unittest.TestCase):
             ),
             (
                 "postgresql",
-                OldPostgresqlBackup,
+                LegacyPostgresqlOperatorBackup,
                 POSTGRESQL_OPERATOR_MIN_REVISION,
                 primary_action,
             ),
             (
                 "postgresql",
-                OldPostgresqlBackup,
+                LegacyPostgresqlOperatorBackup,
                 POSTGRESQL_OPERATOR_MIN_REVISION - 1,
                 {**primary_action, **create_backup_action},
             ),
-            ("postgresql", OldPostgresqlBackup, 519, create_backup_action),
+            (
+                "postgresql",
+                LegacyPostgresqlOperatorBackup,
+                POSTGRESQL_OPERATOR_MIN_REVISION - 1,
+                create_backup_action,
+            ),
             ("swift-proxy", SwiftBackup, None, {}),
         ]
         for charm_name, expected_backup_class, charm_revision, charm_actions in test_cases:
@@ -618,10 +628,10 @@ class TestEtcdBackup(unittest.TestCase):
         )
 
 
-class TestOldPostgresqlBackup(unittest.TestCase):
+class TestLegacyPostgresqlOperatorBackup(unittest.TestCase):
     @patch("jujubackupall.backup.ssh_run_on_unit")
     @patch.object(
-        OldPostgresqlBackup,
+        LegacyPostgresqlOperatorBackup,
         "pgdump_filename",
         "pgdump-all-databases-20260922-120000.gz",
     )
@@ -629,7 +639,7 @@ class TestOldPostgresqlBackup(unittest.TestCase):
         mock_unit = Mock()
         backup_basedir = Path("/home/ubuntu")
 
-        backup = OldPostgresqlBackup(mock_unit, backup_basedir=backup_basedir)
+        backup = LegacyPostgresqlOperatorBackup(mock_unit, backup_basedir=backup_basedir)
         backup.backup_dump()
 
         expected_path = backup_basedir / "pgdump-all-databases-20260922-120000.gz"
@@ -645,9 +655,9 @@ class TestOldPostgresqlBackup(unittest.TestCase):
             timeout=DEFAULT_TASK_TIMEOUT,
         )
 
-    @patch.object(OldPostgresqlBackup, "backup_dump")
+    @patch.object(LegacyPostgresqlOperatorBackup, "backup_dump")
     def test_old_postgresql_backup_uses_dump(self, mock_backup_dump: Mock):
-        backup = OldPostgresqlBackup(Mock(), backup_basedir=Path("/home/ubuntu"))
+        backup = LegacyPostgresqlOperatorBackup(Mock(), backup_basedir=Path("/home/ubuntu"))
 
         backup.backup()
 
@@ -665,7 +675,7 @@ class TestOldPostgresqlBackup(unittest.TestCase):
         save_path = Path("my-path")
         backup_filepath = Path("/var/backups/pgdump-all-databases-20260922-120000")
         mock_unit = Mock()
-        backup = OldPostgresqlBackup(mock_unit, backup_basedir=Path("/home/ubuntu"))
+        backup = LegacyPostgresqlOperatorBackup(mock_unit, backup_basedir=Path("/home/ubuntu"))
         backup.backup_filepath = backup_filepath
 
         result = backup.download_backup(save_path)
