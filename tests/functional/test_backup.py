@@ -225,9 +225,9 @@ def test_build_and_deploy(
                 "s3-uri-style": "path",
             },
         )
-        juju.integrate(app, f"s3-integrator-{app}")
         juju.grant_secret("s3-credentials", f"s3-integrator-{app}")
         juju.config(f"s3-integrator-{app}", {"credentials": secret})
+        juju.integrate(app, f"s3-integrator-{app}")
 
     # --- Wait all to be ready ---
 
