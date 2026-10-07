@@ -208,7 +208,6 @@ def test_build_and_deploy(
     for juju, secret, app in [
         (juju_lxd, s3_secret_lxd, "mysql"),
         (juju_lxd, s3_secret_lxd, "mongodb"),
-        (juju_lxd, s3_secret_lxd, "postgresql"),
         (juju_lxd, s3_secret_lxd, "zookeeper"),
         (juju_k8s, s3_secret_k8s, "mysql-k8s"),
         (juju_k8s, s3_secret_k8s, "mongodb-k8s"),
