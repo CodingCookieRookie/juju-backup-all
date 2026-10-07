@@ -18,7 +18,7 @@ from jujubackupall.backup import (
     MysqlK8sOperatorBackup,
     MysqlOperatorBackup,
     PostgresqlOperatorBackup,
-    ReactivePostgresqlBackup,
+    OldPostgresqlBackup,
     SwiftBackup,
     ZookeeperK8sOperatorBackup,
     ZookeeperOperatorBackup,
@@ -72,7 +72,7 @@ class TestGetCharmBackupInstance(unittest.TestCase):
             ),
             ("mongodb", MongodbOperatorBackup, None, create_backup_action),
             ("etcd", EtcdBackup, None, {}),
-            ("postgresql", ReactivePostgresqlBackup, 519, primary_action),
+            ("postgresql", OldPostgresqlBackup, 519, primary_action),
             (
                 "postgresql",
                 PostgresqlOperatorBackup,
@@ -81,17 +81,17 @@ class TestGetCharmBackupInstance(unittest.TestCase):
             ),
             (
                 "postgresql",
-                ReactivePostgresqlBackup,
+                OldPostgresqlBackup,
                 POSTGRESQL_OPERATOR_MIN_REVISION,
                 primary_action,
             ),
             (
                 "postgresql",
-                ReactivePostgresqlBackup,
+                OldPostgresqlBackup,
                 POSTGRESQL_OPERATOR_MIN_REVISION - 1,
                 {**primary_action, **create_backup_action},
             ),
-            ("postgresql", ReactivePostgresqlBackup, 519, create_backup_action),
+            ("postgresql", OldPostgresqlBackup, 519, create_backup_action),
             ("swift-proxy", SwiftBackup, None, {}),
         ]
         for charm_name, expected_backup_class, charm_revision, charm_actions in test_cases:
@@ -618,18 +618,18 @@ class TestEtcdBackup(unittest.TestCase):
         )
 
 
-class TestReactivePostgresqlBackup(unittest.TestCase):
+class TestOldPostgresqlBackup(unittest.TestCase):
     @patch("jujubackupall.backup.ssh_run_on_unit")
     @patch.object(
-        ReactivePostgresqlBackup,
+        OldPostgresqlBackup,
         "pgdump_filename",
         "pgdump-all-databases-20260922-120000.gz",
     )
-    def test_postgresql_dump_backup(self, mock_ssh_run_on_unit: Mock):
+    def test_old_postgresql_dump_backup(self, mock_ssh_run_on_unit: Mock):
         mock_unit = Mock()
         backup_basedir = Path("/home/ubuntu")
 
-        backup = ReactivePostgresqlBackup(mock_unit, backup_basedir=backup_basedir)
+        backup = OldPostgresqlBackup(mock_unit, backup_basedir=backup_basedir)
         backup.backup_dump()
 
         expected_path = backup_basedir / "pgdump-all-databases-20260922-120000.gz"
@@ -645,9 +645,9 @@ class TestReactivePostgresqlBackup(unittest.TestCase):
             timeout=DEFAULT_TASK_TIMEOUT,
         )
 
-    @patch.object(ReactivePostgresqlBackup, "backup_dump")
-    def test_backup_uses_dump(self, mock_backup_dump: Mock):
-        backup = ReactivePostgresqlBackup(Mock(), backup_basedir=Path("/home/ubuntu"))
+    @patch.object(OldPostgresqlBackup, "backup_dump")
+    def test_old_postgresql_backup_uses_dump(self, mock_backup_dump: Mock):
+        backup = OldPostgresqlBackup(Mock(), backup_basedir=Path("/home/ubuntu"))
 
         backup.backup()
 
@@ -656,7 +656,7 @@ class TestReactivePostgresqlBackup(unittest.TestCase):
     @patch("jujubackupall.backup.ensure_path_exists")
     @patch("jujubackupall.backup.scp_from_unit")
     @patch("jujubackupall.backup.ssh_run_on_unit")
-    def test_download_backup_postgresql_dump(
+    def test_download_old_postgresql_dump(
         self,
         mock_ssh_run_on_unit: Mock,
         mock_scp_from_unit: Mock,
@@ -665,7 +665,7 @@ class TestReactivePostgresqlBackup(unittest.TestCase):
         save_path = Path("my-path")
         backup_filepath = Path("/var/backups/pgdump-all-databases-20260922-120000")
         mock_unit = Mock()
-        backup = ReactivePostgresqlBackup(mock_unit, backup_basedir=Path("/home/ubuntu"))
+        backup = OldPostgresqlBackup(mock_unit, backup_basedir=Path("/home/ubuntu"))
         backup.backup_filepath = backup_filepath
 
         result = backup.download_backup(save_path)

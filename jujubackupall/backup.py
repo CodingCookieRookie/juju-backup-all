@@ -246,7 +246,7 @@ class EtcdBackup(CharmBackup):
         self.backup_filepath = Path(action_output.get("snapshot").get("path"))
 
 
-class ReactivePostgresqlBackup(CharmBackup):
+class OldPostgresqlBackup(CharmBackup):
     """Back up the reactive PostgreSQL charm using pg_dumpall."""
 
     charm_name = "postgresql"
@@ -546,7 +546,7 @@ def get_charm_backup_instance(
                 and charm_revision >= POSTGRESQL_OPERATOR_MIN_REVISION
                 and "create-backup" in charm_actions
             )
-            else ReactivePostgresqlBackup
+            else OldPostgresqlBackup
         )
         return backup_class(
             unit=unit,
