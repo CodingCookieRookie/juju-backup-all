@@ -564,6 +564,11 @@ def test_postgresql_backup(
             )
             juju_lxd.grant_secret("s3-credentials", s3_integrator_app_name)
             juju_lxd.config(s3_integrator_app_name, {"credentials": s3_secret_lxd})
+            juju_lxd.wait(
+                lambda status: jubilant.all_active(status, s3_integrator_app_name),
+                error=jubilant.any_error,
+                timeout=WAIT_TIMEOUT,
+            )
             juju_lxd.integrate(postgresql_app_name, s3_integrator_app_name)
 
         juju_lxd.wait(
