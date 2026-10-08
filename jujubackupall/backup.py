@@ -97,7 +97,6 @@ class MysqlDumpBackup(CharmBackup, metaclass=ABCMeta):
 
     backup_action_name = "mysqldump"
 
-    # Backup using dump
     def backup(self):
         action_output = check_output_unit_action(
             self.unit, self.backup_action_name, self.timeout, basedir=str(self.backup_basedir)

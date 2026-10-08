@@ -530,79 +530,78 @@ def test_juju_client_config_backup(tmp_path: Path):
     assert glob.glob(str(expected_output_dir) + "/juju-*.gz")
 
 
-# postgresql backup requires minio to be exposed via load balancer and SSL certificates
-@pytest.mark.parametrize("backup_location", ["/home/ubuntu", "/home/ubuntu/abc"])
-def test_postgresql_backup(
-    backup_location,
+@pytest.mark.juju_setup
+def test_setup_postgresql_s3_tls(
     juju_lxd: jubilant.Juju,
     juju_k8s: jubilant.Juju,
     k8s_host_juju: jubilant.Juju,
     s3_secret_lxd,
-    tmp_path: Path,
 ):
+    """Enable TLS on MinIO and relate PostgreSQL to an S3 integrator using it.
+
+    PostgreSQL (pgBackRest) only supports S3 over HTTPS. Enabling TLS makes MinIO serve HTTPS
+    only, which breaks the plain-HTTP integrators used by the other S3 backup tests, so this
+    can't run in test_build_and_deploy and must stay after those tests.
+    """
     postgresql_app_name = "postgresql"
-    model_name, controller_name = _model_and_controller(juju_lxd)
-    postgresql_app = juju_lxd.status().apps.get(postgresql_app_name)
     s3_integrator_app_name = "s3-integrator-postgresql-tls"
-    if s3_integrator_app_name not in juju_lxd.status().apps:
-        minio_ip = expose_via_loadbalancer(k8s_host_juju, juju_k8s, "minio")
-        with tempfile.TemporaryDirectory() as cert_dir:
-            cert_path = Path(cert_dir) / "minio.crt"
-            key_path = Path(cert_dir) / "minio.key"
-            subprocess.run(
-                [
-                    "openssl",
-                    "req",
-                    "-x509",
-                    "-newkey",
-                    "rsa:2048",
-                    "-nodes",
-                    "-keyout",
-                    str(key_path),
-                    "-out",
-                    str(cert_path),
-                    "-days",
-                    "365",
-                    "-subj",
-                    "/CN=minio.example.test",
-                    "-addext",
-                    f"subjectAltName=IP:{minio_ip}",
-                ],
-                check=True,
-            )
-            cert_base64 = base64.b64encode(cert_path.read_bytes()).decode("ascii")
-            key_base64 = base64.b64encode(key_path.read_bytes()).decode("ascii")
+    minio_ip = expose_via_loadbalancer(k8s_host_juju, juju_k8s, "minio")
+    with tempfile.TemporaryDirectory() as cert_dir:
+        cert_path = Path(cert_dir) / "minio.crt"
+        key_path = Path(cert_dir) / "minio.key"
+        subprocess.run(
+            [
+                "openssl",
+                "req",
+                "-x509",
+                "-newkey",
+                "rsa:2048",
+                "-nodes",
+                "-keyout",
+                str(key_path),
+                "-out",
+                str(cert_path),
+                "-days",
+                "365",
+                "-subj",
+                "/CN=minio.example.test",
+                "-addext",
+                f"subjectAltName=IP:{minio_ip}",
+            ],
+            check=True,
+        )
+        cert_base64 = base64.b64encode(cert_path.read_bytes()).decode("ascii")
+        key_base64 = base64.b64encode(key_path.read_bytes()).decode("ascii")
 
-        juju_k8s.config("minio", {"ssl-cert": cert_base64, "ssl-key": key_base64})
-        juju_k8s.wait(lambda status: jubilant.all_active(status, "minio"), timeout=WAIT_TIMEOUT)
-        # Re-expose MinIO after its config hook resets the Service to ClusterIP.
-        tls_minio_ip = expose_via_loadbalancer(k8s_host_juju, juju_k8s, "minio")
-        assert tls_minio_ip == minio_ip, (
-            f"MinIO LoadBalancer IP changed from {minio_ip} to {tls_minio_ip}; "
-            "the TLS certificate no longer matches the endpoint"
-        )
-        juju_lxd.deploy(
-            "s3-integrator",
-            app=s3_integrator_app_name,
-            channel="2/stable",
-            config={
-                "endpoint": f"https://{minio_ip}:9000",
-                "bucket": "juju-backup-all-postgresql",
-                "path": "postgresql",
-                "region": "",
-                "s3-uri-style": "path",
-                "tls-ca-chain": cert_base64,
-            },
-        )
-        juju_lxd.grant_secret("s3-credentials", s3_integrator_app_name)
-        juju_lxd.config(s3_integrator_app_name, {"credentials": s3_secret_lxd})
-        juju_lxd.wait(
-            lambda status: jubilant.all_active(status, s3_integrator_app_name),
-            error=lambda status: jubilant.any_error(status, s3_integrator_app_name),
-            timeout=WAIT_TIMEOUT,
-        )
-        juju_lxd.integrate(postgresql_app_name, s3_integrator_app_name)
-
+    juju_k8s.config("minio", {"ssl-cert": cert_base64, "ssl-key": key_base64})
+    juju_k8s.wait(lambda status: jubilant.all_active(status, "minio"), timeout=WAIT_TIMEOUT)
+    # Re-expose MinIO after its config hook resets the Service to ClusterIP.
+    tls_minio_ip = expose_via_loadbalancer(k8s_host_juju, juju_k8s, "minio")
+    assert tls_minio_ip == minio_ip, (
+        f"MinIO LoadBalancer IP changed from {minio_ip} to {tls_minio_ip}; "
+        "the TLS certificate no longer matches the endpoint"
+    )
+    juju_lxd.deploy(
+        "s3-integrator",
+        app=s3_integrator_app_name,
+        channel="2/stable",
+        config={
+            "endpoint": f"https://{minio_ip}:9000",
+            "bucket": "juju-backup-all-postgresql",
+            "path": "postgresql",
+            "region": "",
+            "s3-uri-style": "path",
+            "tls-ca-chain": cert_base64,
+        },
+    )
+    juju_lxd.grant_secret("s3-credentials", s3_integrator_app_name)
+    juju_lxd.config(s3_integrator_app_name, {"credentials": s3_secret_lxd})
+    juju_lxd.wait(
+        lambda status: jubilant.all_active(status, s3_integrator_app_name),
+        error=lambda status: jubilant.any_error(status, s3_integrator_app_name),
+        timeout=WAIT_TIMEOUT,
+    )
+    juju_lxd.integrate(postgresql_app_name, s3_integrator_app_name)
     juju_lxd.wait(
         lambda status: jubilant.all_active(status, postgresql_app_name, s3_integrator_app_name),
         error=lambda status: jubilant.any_error(
@@ -610,10 +609,13 @@ def test_postgresql_backup(
         ),
         timeout=WAIT_TIMEOUT,
     )
-    status = juju_lxd.status()
-    assert jubilant.all_active(
-        status, postgresql_app_name, s3_integrator_app_name
-    ), f"PostgreSQL or its S3 integrator is not active after relation setup:\n{status}"
+
+
+@pytest.mark.parametrize("backup_location", ["/home/ubuntu", "/home/ubuntu/abc"])
+def test_postgresql_backup(backup_location, juju_lxd: jubilant.Juju, tmp_path: Path):
+    postgresql_app_name = "postgresql"
+    model_name, controller_name = _model_and_controller(juju_lxd)
+    postgresql_app = juju_lxd.status().apps.get(postgresql_app_name)
 
     exclude_opts = " -e ".join(get_supported_backup_charms_but(postgresql_app_name))
     output = subprocess.check_output(
