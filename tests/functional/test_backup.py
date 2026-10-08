@@ -15,14 +15,19 @@
 """Test juju-backup-all on multi-model controller."""
 
 import base64
+import datetime
 import glob
+import ipaddress
 import json
 import subprocess
-import tempfile
 from pathlib import Path
 
 import jubilant
 import pytest
+from cryptography import x509
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
+from cryptography.x509.oid import NameOID
 from pytest_jubilant import JujuFactory
 
 from jujubackupall import constants
@@ -54,6 +59,41 @@ def innodb_cluster_online(status: jubilant.Status) -> bool:
         and "can tolerate up to ONE failure" in unit.workload_status.message
         for unit in status.apps["mysql-innodb"].units.values()
     )
+
+
+def generate_self_signed_cert(ip: str) -> tuple[bytes, bytes]:
+    """Return a PEM-encoded self-signed certificate and private key valid for ``ip``.
+
+    The certificate is its own CA so it can be passed as the client's ``tls-ca-chain``.
+    """
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "minio.example.test")])
+    now = datetime.datetime.now(datetime.timezone.utc)
+    cert = (
+        x509.CertificateBuilder()
+        .subject_name(name)
+        .issuer_name(name)
+        .public_key(key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(now)
+        .not_valid_after(now + datetime.timedelta(days=365))
+        .add_extension(
+            x509.SubjectAlternativeName([x509.IPAddress(ipaddress.ip_address(ip))]),
+            critical=False,
+        )
+        .add_extension(x509.BasicConstraints(ca=True, path_length=None), critical=True)
+        .add_extension(x509.SubjectKeyIdentifier.from_public_key(key.public_key()), critical=False)
+        .add_extension(
+            x509.AuthorityKeyIdentifier.from_issuer_public_key(key.public_key()), critical=False
+        )
+        .sign(key, hashes.SHA256())
+    )
+    key_pem = key.private_bytes(
+        serialization.Encoding.PEM,
+        serialization.PrivateFormat.TraditionalOpenSSL,
+        serialization.NoEncryption(),
+    )
+    return cert.public_bytes(serialization.Encoding.PEM), key_pem
 
 
 @pytest.fixture(scope="module")
@@ -546,32 +586,9 @@ def test_setup_postgresql_s3_tls(
     postgresql_app_name = "postgresql"
     s3_integrator_app_name = "s3-integrator-postgresql-tls"
     minio_ip = expose_via_loadbalancer(k8s_host_juju, juju_k8s, "minio")
-    with tempfile.TemporaryDirectory() as cert_dir:
-        cert_path = Path(cert_dir) / "minio.crt"
-        key_path = Path(cert_dir) / "minio.key"
-        subprocess.run(
-            [
-                "openssl",
-                "req",
-                "-x509",
-                "-newkey",
-                "rsa:2048",
-                "-nodes",
-                "-keyout",
-                str(key_path),
-                "-out",
-                str(cert_path),
-                "-days",
-                "365",
-                "-subj",
-                "/CN=minio.example.test",
-                "-addext",
-                f"subjectAltName=IP:{minio_ip}",
-            ],
-            check=True,
-        )
-        cert_base64 = base64.b64encode(cert_path.read_bytes()).decode("ascii")
-        key_base64 = base64.b64encode(key_path.read_bytes()).decode("ascii")
+    cert_pem, key_pem = generate_self_signed_cert(minio_ip)
+    cert_base64 = base64.b64encode(cert_pem).decode("ascii")
+    key_base64 = base64.b64encode(key_pem).decode("ascii")
 
     juju_k8s.config("minio", {"ssl-cert": cert_base64, "ssl-key": key_base64})
     juju_k8s.wait(lambda status: jubilant.all_active(status, "minio"), timeout=WAIT_TIMEOUT)
